@@ -1,0 +1,32 @@
+## Pipeline
+
+1. Text ingestion: segment documents into chunks (with overlap).
+2. Embeddings: represent text chunks as vectors.
+3. Indexing: store in a vector database.
+4. Retrieval: given a query, retrieve top-K closest embeddings.
+5. Reranking: score the top-K to surface the most relevant.
+6. LLM prompt: feed the top passages into an LLM with system prompt to generate an answer.
+
+### Embeddings
+
+Open embeddings model (local?) Qwen3-Embedding-8B
+Efficient Vector stores: SQLite, Qdrant or ChromaDB
+
+
+### Retrieval
+
+Top-K and Reranking 
+Increase to top-100 then rerank top-10 for more precision?
+
+
+### Generation
+
+Cloud-based LLMs (initial cost-effective solution: gpt-4o mini)
+
+Cost effectiveness:
+- prompt engineering
+- context filtering
+
+### UI
+
+- short memory of previous turns conversation

@@ -1,0 +1,130 @@
+import math
+import re
+from embeddings import embed_texts
+
+ABBREVIATIONS = r"(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|Inc|Ltd|Corp|approx|dept|est|govt|misc)\."
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split text into sentences using regex."""
+    # Protect abbreviations by temporarily replacing their periods
+    protected = re.sub(
+        ABBREVIATIONS, lambda m: m.group().replace(".", "<PERIOD>"), text
+    )
+    # Split on sentence-ending punctuation followed by whitespace
+    raw = re.split(r"(?<=[.!?])\s+", protected)
+    # Restore periods and strip whitespace
+    sentences = [s.replace("<PERIOD>", ".").strip() for s in raw if s.strip()]
+    return sentences
+
+
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def semantic_chunk(
+    text: str,
+    window_size: int = 3,
+    percentile_threshold: int = 25,
+    max_chunk_size: int = 2000,
+) -> list[str]:
+    """Split text into semantically coherent chunks using sliding window embeddings.
+
+    1. Split into sentences
+    2. Build sliding windows of `window_size` sentences
+    3. Embed each window
+    4. Compute cosine similarity between consecutive windows
+    5. Breakpoints where similarity is below the percentile threshold
+    6. Group sentences between breakpoints
+    7. Split oversized chunks at the next best breakpoint
+    """
+    sentences = split_sentences(text)
+
+    if len(sentences) <= 1:
+        return sentences
+    if len(sentences) <= window_size:
+        return [" ".join(sentences)]
+
+    # Build sliding windows
+    windows = []
+    for i in range(len(sentences) - window_size + 1):
+        window_text = " ".join(sentences[i : i + window_size])
+        windows.append(window_text)
+
+    # Embed all windows in one batch
+    embeddings = embed_texts(windows)  
+
+    # Cosine similarity between consecutive windows
+    similarities = []
+    for i in range(len(embeddings) - 1):
+        sim = cosine_similarity(embeddings[i], embeddings[i + 1])
+        similarities.append(sim)
+
+    # Find breakpoints: similarities below the percentile threshold
+    if not similarities:
+        return [" ".join(sentences)]
+
+    sorted_sims = sorted(similarities)
+    threshold_index = max(0, int(len(sorted_sims) * percentile_threshold / 100) - 1)
+    threshold_value = sorted_sims[threshold_index]
+
+    # Breakpoint indices (in terms of sentence positions)
+    # similarity[i] compares window starting at sentence i vs i+1
+    # so a breakpoint at similarity index i means split after sentence i + window_size - 1
+    breakpoints = set()
+    for i, sim in enumerate(similarities):
+        if sim <= threshold_value:
+            split_after = i + window_size - 1
+            if split_after < len(sentences):
+                breakpoints.add(split_after)
+
+    # Group sentences into chunks
+    chunks = []
+    current_chunk_sentences = []
+    for i, sentence in enumerate(sentences):
+        current_chunk_sentences.append(sentence)
+        if i in breakpoints:
+            chunks.append(" ".join(current_chunk_sentences))
+            current_chunk_sentences = []
+    # Remaining sentences
+    if current_chunk_sentences:
+        chunks.append(" ".join(current_chunk_sentences))
+
+    # Split oversized chunks by character count
+    final_chunks = []
+    for chunk in chunks:
+        if len(chunk) <= max_chunk_size:
+            final_chunks.append(chunk)
+        else:
+            # Split roughly in half by sentences
+            chunk_sentences = split_sentences(chunk)
+            mid = len(chunk_sentences) // 2
+            final_chunks.append(" ".join(chunk_sentences[:mid]))
+            final_chunks.append(" ".join(chunk_sentences[mid:]))
+    return final_chunks
+
+
+def chunk_documents(texts: list[str], **kwargs) -> list[dict]:
+    """Chunk multiple documents, preserving document and chunk indices.
+
+    Takes the output of dir_to_texts() and returns a list of dicts with:
+        - doc_index: which document the chunk came from
+        - chunk_index: position of chunk within that document
+        - text: the chunk text
+    """
+    results = []
+    for doc_index, text in enumerate(texts):
+        chunks = semantic_chunk(text, **kwargs)
+        for chunk_index, chunk_text in enumerate(chunks):
+            results.append(
+                {"doc_index": doc_index, "chunk_index": chunk_index, "text": chunk_text}
+            )
+    return results
+
+
