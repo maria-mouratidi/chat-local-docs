@@ -80,6 +80,48 @@ def index_chunks(
     return len(points)
 
 
+def upsert_points(
+    chunks: list[dict],
+    embeddings: list[list[float]],
+    client: QdrantClient | None = None,
+    collection_name: str = COLLECTION_NAME,
+    batch_size: int = BATCH_SIZE,
+    id_offset: int = 0,
+) -> int:
+    """Store chunks with pre-computed embeddings in Qdrant.
+
+    Unlike index_chunks(), this does NOT call embed_texts() — it uses
+    the embeddings you provide. Use this when loading from cache.
+
+    Args:
+        chunks: List of dicts with "text" and any metadata.
+        embeddings: Corresponding embedding vectors.
+        id_offset: Starting point ID (for multi-file ingestion).
+
+    Returns:
+        Number of points upserted.
+    """
+    if client is None:
+        client = get_client()
+
+    ensure_collection(client, collection_name)
+
+    points = [
+        PointStruct(id=id_offset + i, vector=emb, payload=chunk)
+        for i, (chunk, emb) in enumerate(zip(chunks, embeddings))
+    ]
+
+    for start in range(0, len(points), batch_size):
+        batch = points[start : start + batch_size]
+        client.upsert(
+            collection_name=collection_name,
+            wait=True,
+            points=batch,
+        )
+
+    return len(points)
+
+
 def search(
     query: str,
     top_k: int = 10,

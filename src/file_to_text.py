@@ -37,13 +37,14 @@ def file_to_text(file_path: str) -> str:
     return extractor(file_path)
 
 
-def dir_to_texts(directory: str) -> list[str]:
-    """Extract text from all supported files in a directory."""
+def list_supported_files(directory: str) -> list[Path]:
+    """Return paths of all supported files in a directory."""
     dir_path = Path(directory)
     if not dir_path.is_dir():
         raise NotADirectoryError(f"Not a directory: {directory}")
-    texts = []
-    for file_path in sorted(dir_path.iterdir()):
-        if file_path.suffix.lower() in EXTRACTORS:
-            texts.append(file_to_text(str(file_path)))
-    return texts
+    return [f for f in sorted(dir_path.iterdir()) if f.suffix.lower() in EXTRACTORS]
+
+
+def dir_to_texts(directory: str) -> list[str]:
+    """Extract text from all supported files in a directory."""
+    return [file_to_text(str(f)) for f in list_supported_files(directory)]

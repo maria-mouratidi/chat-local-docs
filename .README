@@ -1,32 +1,67 @@
+## chat-local-docs
+
+Local RAG pipeline for chatting with PDF, DOCX, and TXT documents. All processing runs locally — embeddings via Ollama, vector storage via Qdrant.
+
 ## Pipeline
 
-1. Text ingestion: segment documents into chunks (with overlap).
-2. Embeddings: represent text chunks as vectors.
-3. Indexing: store in a vector database.
-4. Retrieval: given a query, retrieve top-K closest embeddings.
-5. Reranking: score the top-K to surface the most relevant.
-6. LLM prompt: feed the top passages into an LLM with system prompt to generate an answer.
+1. **Text ingestion** (`file_to_text.py`): extract text from PDF/DOCX/TXT files
+2. **Chunking** (`chunking.py`): sliding window semantic chunking — splits at topic boundaries using embedding similarity
+3. **Embeddings** (`embeddings.py`): represent text chunks as 4096-dim vectors via Qwen3-Embedding-8B (Ollama)
+4. **Indexing** (`vector_db.py`): store vectors + metadata in Qdrant (cosine distance)
+5. **Retrieval** (`retrieval.py`): given a query, retrieve top-K closest chunks — TODO
+6. **Reranking** (`reranking.py`): score top-K to surface most relevant — TODO
+7. **Generation**: feed top passages into LLM with system prompt — TODO
 
-### Embeddings
+## Usage
 
-Open embeddings model (local?) Qwen3-Embedding-8B
-Efficient Vector stores: SQLite, Qdrant or ChromaDB
+```bash
+# Ingest documents (run once per document set)
+python src/main.py ingest [directory]
 
+# Query indexed documents
+python src/main.py query "your question here"
+```
 
-### Retrieval
+## Prerequisites
 
-Top-K and Reranking 
-Increase to top-100 then rerank top-10 for more precision?
+- Python 3.12+
+- [Ollama](https://ollama.com/) running locally with `qwen3-embedding` model pulled
+- [Qdrant](https://qdrant.tech/) running locally via Docker
 
+```bash
+# Pull embedding model
+ollama pull qwen3-embedding
 
-### Generation
+# Start Qdrant
+docker run -p 6333:6333 qdrant/qdrant
+```
 
-Cloud-based LLMs (initial cost-effective solution: gpt-4o mini)
+## Project Structure
 
-Cost effectiveness:
-- prompt engineering
-- context filtering
+```
+src/
+  main.py          — CLI entry point (ingest / query commands)
+  file_to_text.py  — PDF/DOCX/TXT text extraction
+  chunking.py      — sliding window semantic chunking
+  embeddings.py    — Ollama embedding wrapper (Qwen3-Embedding-8B)
+  vector_db.py     — Qdrant indexing and search
+  retrieval.py     — top-K retrieval (TODO)
+  reranking.py     — reranking (TODO)
+data/              — document directory (default ingest source)
+```
 
-### UI
+## Dependencies
 
-- short memory of previous turns conversation
+- `ollama` — local embedding model client
+- `pypdf` — PDF text extraction
+- `python-docx` — DOCX text extraction
+- `qdrant-client` — vector database client
+
+## Design Notes
+
+- **Chunking**: semantic chunking using sliding window (3 sentences) + embedding similarity. Breakpoints at the bottom 25th percentile of cosine similarity between adjacent windows. Max chunk size capped at 2000 chars.
+- **Embeddings**: Qwen3-Embedding-8B via Ollama, 4096-dim vectors
+- **Vector store**: Qdrant on Docker (localhost:6333), cosine distance, chunk text stored in payload for retrieval without round-trips
+- **Retrieval strategy** (planned): top-100 retrieval then rerank to top-10 for precision
+- **Generation** (planned): cloud LLM (gpt-4o mini), with prompt engineering and context filtering for cost effectiveness
+- **UI** (planned): short memory of previous conversation turns
