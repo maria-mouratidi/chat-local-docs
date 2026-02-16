@@ -5,6 +5,7 @@ from chunking import semantic_chunk
 from embeddings import embed_texts
 from cache import get_db, file_hash, is_cached, save_chunks, load_chunks, remove_stale
 from vector_db import upsert_points, delete_collection, search
+from reranking import rerank
 
 
 def ingest(directory: str = "data/"):
@@ -54,8 +55,9 @@ def ingest(directory: str = "data/"):
 
 
 def query(question: str, top_k: int = 5):
-    """Search indexed documents for the most relevant chunks."""
-    results = search(question, top_k=top_k)
+    """Search indexed documents, then rerank for precision."""
+    candidates = search(question, top_k=100)
+    results = rerank(question, candidates, top_k=top_k)
     print(f"\n--- Top {top_k} results for '{question}' ---")
     for r in results:
         print(f"  [file={r['file']}, chunk={r['chunk_index']}, score={r['score']:.4f}]")

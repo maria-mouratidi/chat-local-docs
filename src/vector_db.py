@@ -30,56 +30,6 @@ def ensure_collection(
         )
 
 
-def index_chunks(
-    chunks: list[dict],
-    client: QdrantClient | None = None,
-    collection_name: str = COLLECTION_NAME,
-    batch_size: int = BATCH_SIZE,
-) -> int:
-    """Embed and store document chunks in Qdrant.
-
-    Args:
-        chunks: Output of chunk_documents(). Each dict has keys:
-                "doc_index", "chunk_index", "text".
-        client: Qdrant client. If None, creates one with default URL.
-        collection_name: Target collection name.
-        batch_size: Number of points per upsert call.
-
-    Returns:
-        Number of points indexed.
-    """
-    if client is None:
-        client = get_client()
-
-    ensure_collection(client, collection_name)
-
-    texts = [chunk["text"] for chunk in chunks]
-    embeddings = embed_texts(texts)
-
-    points = [
-        PointStruct(
-            id=i,
-            vector=embeddings[i],
-            payload={
-                "doc_index": chunk["doc_index"],
-                "chunk_index": chunk["chunk_index"],
-                "text": chunk["text"],
-            },
-        )
-        for i, chunk in enumerate(chunks)
-    ]
-
-    for start in range(0, len(points), batch_size):
-        batch = points[start : start + batch_size]
-        client.upsert(
-            collection_name=collection_name,
-            wait=True,
-            points=batch,
-        )
-
-    return len(points)
-
-
 def upsert_points(
     chunks: list[dict],
     embeddings: list[list[float]],
@@ -89,9 +39,6 @@ def upsert_points(
     id_offset: int = 0,
 ) -> int:
     """Store chunks with pre-computed embeddings in Qdrant.
-
-    Unlike index_chunks(), this does NOT call embed_texts() — it uses
-    the embeddings you provide. Use this when loading from cache.
 
     Args:
         chunks: List of dicts with "text" and any metadata.
@@ -146,12 +93,7 @@ def search(
     ).points
 
     return [
-        {
-            "text": point.payload["text"],
-            "doc_index": point.payload["doc_index"],
-            "chunk_index": point.payload["chunk_index"],
-            "score": point.score,
-        }
+        {**point.payload, "score": point.score}
         for point in results
     ]
 

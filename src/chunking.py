@@ -110,21 +110,3 @@ def semantic_chunk(
     return final_chunks
 
 
-def chunk_documents(texts: list[str], **kwargs) -> list[dict]:
-    """Chunk multiple documents, preserving document and chunk indices.
-
-    Takes the output of dir_to_texts() and returns a list of dicts with:
-        - doc_index: which document the chunk came from
-        - chunk_index: position of chunk within that document
-        - text: the chunk text
-    """
-    results = []
-    for doc_index, text in enumerate(texts):
-        chunks = semantic_chunk(text, **kwargs)
-        for chunk_index, chunk_text in enumerate(chunks):
-            results.append(
-                {"doc_index": doc_index, "chunk_index": chunk_index, "text": chunk_text}
-            )
-    return results
-
-
