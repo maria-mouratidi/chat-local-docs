@@ -6,6 +6,7 @@ from embeddings import embed_texts
 from cache import get_db, file_hash, is_cached, save_chunks, load_chunks, remove_stale
 from vector_db import upsert_points, delete_collection, search
 from reranking import rerank
+from llm import generate_answer
 
 
 def ingest(directory: str = "data/"):
@@ -55,7 +56,7 @@ def ingest(directory: str = "data/"):
 
 
 def query(question: str, top_k: int = 5):
-    """Search indexed documents, then rerank for precision."""
+    """Search indexed documents, rerank, and generate an answer."""
     candidates = search(question, top_k=100)
     results = rerank(question, candidates, top_k=top_k)
     print(f"\n--- Top {top_k} results for '{question}' ---")
@@ -63,6 +64,11 @@ def query(question: str, top_k: int = 5):
         print(f"  [file={r['file']}, chunk={r['chunk_index']}, score={r['score']:.4f}]")
         print(f"  {r['text'][:200]}...")
         print()
+
+    if results:
+        print("--- Generating answer (qwen3:1.7b) ---")
+        answer = generate_answer(question, results[0]["text"])
+        print(f"\n{answer}")
 
 
 if __name__ == "__main__":
