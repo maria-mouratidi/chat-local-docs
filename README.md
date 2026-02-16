@@ -2,7 +2,9 @@
 
 Local RAG pipeline for chatting with PDF, DOCX, and TXT documents. Documents are processed and indexed on infrastructure you control — no data is sent to third-party AI services.
 
-<video src="assets/demo.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/83c23c3b-1513-4ba2-ad38-971b7b38659d
+
+
 
 ## Pipeline
 
