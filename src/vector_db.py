@@ -1,5 +1,14 @@
+import uuid
+
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
 from embeddings import embed_texts
 
@@ -36,14 +45,11 @@ def upsert_points(
     client: QdrantClient | None = None,
     collection_name: str = COLLECTION_NAME,
     batch_size: int = BATCH_SIZE,
-    id_offset: int = 0,
 ) -> int:
     """Store chunks with pre-computed embeddings in Qdrant.
 
-    Args:
-        chunks: List of dicts with "text" and any metadata.
-        embeddings: Corresponding embedding vectors.
-        id_offset: Starting point ID (for multi-file ingestion).
+    Uses deterministic UUIDs based on file name + chunk index so upserts
+    are idempotent.
 
     Returns:
         Number of points upserted.
@@ -54,8 +60,12 @@ def upsert_points(
     ensure_collection(client, collection_name)
 
     points = [
-        PointStruct(id=id_offset + i, vector=emb, payload=chunk)
-        for i, (chunk, emb) in enumerate(zip(chunks, embeddings))
+        PointStruct(
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{chunk['file']}:{chunk['chunk_index']}")),
+            vector=emb,
+            payload=chunk,
+        )
+        for chunk, emb in zip(chunks, embeddings)
     ]
 
     for start in range(0, len(points), batch_size):
@@ -96,6 +106,26 @@ def search(
         {**point.payload, "score": point.score}
         for point in results
     ]
+
+
+def delete_file_points(
+    file_name: str,
+    client: QdrantClient | None = None,
+    collection_name: str = COLLECTION_NAME,
+) -> None:
+    """Delete all points belonging to a specific file."""
+    if client is None:
+        client = get_client()
+
+    if not client.collection_exists(collection_name):
+        return
+
+    client.delete(
+        collection_name=collection_name,
+        points_selector=Filter(
+            must=[FieldCondition(key="file", match=MatchValue(value=file_name))]
+        ),
+    )
 
 
 def delete_collection(

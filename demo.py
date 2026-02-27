@@ -14,12 +14,12 @@ from embeddings import embed_texts
 from cache import get_db, file_hash, is_cached, save_chunks, load_chunks
 from vector_db import (
     get_client,
+    ensure_collection,
     upsert_points,
-    delete_collection,
     COLLECTION_NAME,
 )
-from reranking import rerank
-from llm import generate_answer
+from reranking import rerank, warmup as warmup_reranker
+from llm import generate_answer_stream
 
 # ── Theme ─────────────────────────────────────────────────────────
 
@@ -382,8 +382,9 @@ def run_ingest(files):
     )
 
     # -- Step 4: Store --
-    delete_collection()
-    count = upsert_points(all_chunks, all_embeddings)
+    client = get_client()
+    ensure_collection(client)
+    count = upsert_points(all_chunks, all_embeddings, client=client)
 
     yield (
         _pipeline(
@@ -439,7 +440,7 @@ def run_query(question: str):
     results = client.query_points(
         collection_name=COLLECTION_NAME,
         query=q_emb,
-        limit=100,
+        limit=30,
         with_payload=True,
     ).points
     candidates = [{**p.payload, "score": p.score} for p in results]
@@ -467,22 +468,8 @@ def run_query(question: str):
         "",
     )
 
-    # Step 4 — generate answer from the top chunk
-    context = reranked[0]["text"] if reranked else ""
-    answer = generate_answer(question, context) if context else "No relevant context found."
-
-    md = MarkdownIt()
-    answer_html = (
-        '<div class="answer-card">'
-        '  <div class="answer-header">Answer</div>'
-        f'  <div class="answer-body">{md.render(answer)}</div>'
-        '</div>'
-    )
-
-    sources_header = (
-        '<div class="sources-header">Sources</div>'
-    )
-
+    # Build sources HTML (available immediately after reranking)
+    sources_header = '<div class="sources-header">Sources</div>'
     chunks_html = "".join(
         _chunk_card(
             rank=i,
@@ -492,6 +479,38 @@ def run_query(question: str):
             score=r["score"],
         )
         for i, r in enumerate(reranked, 1)
+    )
+
+    pipeline_generating = _pipeline(
+        _step("Embedding question", "done", f"dim {len(q_emb)}"),
+        _step("Finding candidates", "done", f"{len(candidates)} found"),
+        _step("Reranking matches", "done", f"top {len(reranked)} selected"),
+        _step("Generating answer", "active", "qwen3:1.7b"),
+    )
+
+    # Step 4 — stream answer token by token
+    context = reranked[0]["text"] if reranked else ""
+    md = MarkdownIt()
+
+    if not context:
+        answer = "No relevant context found."
+    else:
+        answer = ""
+        for token in generate_answer_stream(question, context):
+            answer += token
+            answer_html = (
+                '<div class="answer-card">'
+                '  <div class="answer-header">Answer</div>'
+                f'  <div class="answer-body">{md.render(answer)}</div>'
+                '</div>'
+            )
+            yield (pipeline_generating, answer_html + sources_header + chunks_html)
+
+    answer_html = (
+        '<div class="answer-card">'
+        '  <div class="answer-header">Answer</div>'
+        f'  <div class="answer-body">{md.render(answer)}</div>'
+        '</div>'
     )
 
     yield (
@@ -545,4 +564,5 @@ with gr.Blocks(title="chat-local-docs", css=CSS) as demo:
         )
 
 if __name__ == "__main__":
+    warmup_reranker()
     demo.launch(theme=theme)

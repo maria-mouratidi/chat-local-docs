@@ -1,8 +1,20 @@
-import math
 import re
-from embeddings import embed_texts
+
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 ABBREVIATIONS = r"(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|Inc|Ltd|Corp|approx|dept|est|govt|misc)\."
+
+# Lightweight local model for boundary detection only (384-dim, ~80MB, CPU-fast).
+# The expensive Qwen3 model is used separately for final chunk embeddings.
+_boundary_model = None
+
+
+def _get_boundary_model() -> SentenceTransformer:
+    global _boundary_model
+    if _boundary_model is None:
+        _boundary_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _boundary_model
 
 
 def split_sentences(text: str) -> list[str]:
@@ -16,16 +28,6 @@ def split_sentences(text: str) -> list[str]:
     # Restore periods and strip whitespace
     sentences = [s.replace("<PERIOD>", ".").strip() for s in raw if s.strip()]
     return sentences
-
-
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
 
 
 def semantic_chunk(
@@ -57,14 +59,15 @@ def semantic_chunk(
         window_text = " ".join(sentences[i : i + window_size])
         windows.append(window_text)
 
-    # Embed all windows in one batch
-    embeddings = embed_texts(windows)  
+    # Embed all windows using the lightweight local model (fast, CPU-only)
+    model = _get_boundary_model()
+    embeddings = model.encode(windows, normalize_embeddings=True)
 
-    # Cosine similarity between consecutive windows
-    similarities = []
-    for i in range(len(embeddings) - 1):
-        sim = cosine_similarity(embeddings[i], embeddings[i + 1])
-        similarities.append(sim)
+    # Cosine similarity between consecutive windows (dot product of normalized vectors)
+    similarities = [
+        float(np.dot(embeddings[i], embeddings[i + 1]))
+        for i in range(len(embeddings) - 1)
+    ]
 
     # Find breakpoints: similarities below the percentile threshold
     if not similarities:

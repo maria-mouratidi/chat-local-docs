@@ -95,14 +95,16 @@ def load_chunks(conn: sqlite3.Connection, fhash: str) -> list[dict]:
     ]
 
 
-def remove_stale(conn: sqlite3.Connection, current_hashes: set[str]) -> list[str]:
+def remove_stale(
+    conn: sqlite3.Connection, current_hashes: set[str]
+) -> list[tuple[str, str]]:
     """Remove cache entries for files no longer in the data directory.
 
-    Returns list of removed file hashes.
+    Returns list of (file_hash, file_path) tuples that were removed.
     """
-    all_hashes = conn.execute("SELECT file_hash FROM files").fetchall()
-    stale = [row[0] for row in all_hashes if row[0] not in current_hashes]
-    for fhash in stale:
+    all_rows = conn.execute("SELECT file_hash, file_path FROM files").fetchall()
+    stale = [(row[0], row[1]) for row in all_rows if row[0] not in current_hashes]
+    for fhash, _ in stale:
         conn.execute("DELETE FROM chunks WHERE file_hash = ?", (fhash,))
         conn.execute("DELETE FROM files WHERE file_hash = ?", (fhash,))
     if stale:

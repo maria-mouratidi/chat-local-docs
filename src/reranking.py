@@ -11,6 +11,11 @@ def _get_model() -> CrossEncoder:
     return _model
 
 
+def warmup() -> None:
+    """Pre-load the cross-encoder model so the first query isn't slow."""
+    _get_model()
+
+
 def rerank(query: str, results: list[dict], top_k: int = 5) -> list[dict]:
     """Re-score retrieval results using a cross-encoder and return the top-k."""
     if not results:
