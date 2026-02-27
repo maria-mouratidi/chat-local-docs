@@ -67,6 +67,22 @@ ollama pull qwen3-embedding
 EMBEDDING_BACKEND=ollama make ingest DIR=data/
 ```
 
+## Evaluation
+
+Auto-generate a test set from your documents, then measure retrieval and answer quality:
+
+```bash
+# Generate QA pairs from ingested documents (default: 20 questions)
+make eval-generate DIR=data/
+
+# Run evaluation against the test set
+make eval-run
+```
+
+Metrics reported:
+- **Retrieval**: Hit@1/3/5 (was the source chunk found?), MRR (mean reciprocal rank)
+- **Answer quality**: Faithfulness (1-5, grounded in context?) and Relevance (1-5, addresses the question?) via LLM-as-judge
+
 ## Project Structure
 
 ```
@@ -79,9 +95,11 @@ src/
   reranking.py     — cross-encoder reranking
   llm.py           — local LLM answer generation (Ollama)
   cache.py         — SQLite chunk/embedding cache (skip re-processing unchanged files)
+  eval.py          — evaluation: test set generation + retrieval/answer quality metrics
 demo.py            — Gradio web UI
 modal_app.py       — Modal deployment (GPU container with sentence-transformers)
 data/              — document directory (default ingest source)
+eval/              — generated test sets (testset.json)
 ```
 
 ## Dependencies

@@ -6,3 +6,9 @@ ingest:
 
 query:
 	uv run src/main.py query "$(Q)"
+
+eval-generate:
+	uv run src/eval.py generate $(DIR)
+
+eval-run:
+	uv run src/eval.py run
