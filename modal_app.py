@@ -10,7 +10,7 @@ image = modal.Image.debian_slim(python_version="3.12").pip_install(
 MODEL_NAME = "Qwen/Qwen3-Embedding-8B"
 
 
-@app.cls(image=image, gpu="A10G", container_idle_timeout=300)
+@app.cls(image=image, gpu="A10G", scaledown_window=300)
 class Embedder:
     @modal.enter()
     def load_model(self):

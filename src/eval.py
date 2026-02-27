@@ -16,6 +16,7 @@ from reranking import rerank
 from llm import generate_answer, MODEL
 
 TESTSET_PATH = Path("eval/testset.json")
+RESULTS_PATH = Path("eval/results.json")
 
 
 # ── Test set generation ──────────────────────────────────────────
@@ -145,50 +146,40 @@ def _judge_answer(question: str, answer: str, context: str) -> dict:
     return {"faithfulness": faithfulness, "relevance": relevance}
 
 
-def run_eval(testset_path: str = str(TESTSET_PATH)) -> None:
-    """Run retrieval + answer quality evaluation."""
-    path = Path(testset_path)
-    if not path.exists():
-        print(f"Test set not found at {path}. Run 'eval.py generate' first.")
-        sys.exit(1)
+def _load_results() -> list[dict]:
+    """Load previously saved per-case results."""
+    if RESULTS_PATH.exists():
+        return json.loads(RESULTS_PATH.read_text())
+    return []
 
-    testset = json.loads(path.read_text())
-    print(f"Evaluating {len(testset)} test cases...\n")
 
+def _save_results(results: list[dict]) -> None:
+    """Persist per-case results to disk."""
+    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RESULTS_PATH.write_text(json.dumps(results, indent=2))
+
+
+def _print_summary(results: list[dict], n_total: int) -> None:
+    """Print aggregate metrics from saved results."""
+    n = len(results)
     hits = {1: 0, 3: 0, 5: 0}
     mrr_sum = 0.0
     faithfulness_sum = 0.0
     relevance_sum = 0.0
-    n = len(testset)
 
-    for i, case in enumerate(testset, 1):
-        question = case["question"]
-        source_chunk = case["source_chunk"]
-        print(f"[{i}/{n}] {question[:70]}...")
-
-        # Retrieval
-        candidates = search(question, top_k=30)
-        reranked = rerank(question, candidates, top_k=5)
-
-        rank = _find_chunk_rank(source_chunk, reranked)
+    for r in results:
+        rank = r["rank"]
         for k in hits:
             if rank is not None and rank <= k:
                 hits[k] += 1
         if rank is not None:
             mrr_sum += 1.0 / rank
+        faithfulness_sum += r["faithfulness"]
+        relevance_sum += r["relevance"]
 
-        # Answer generation + judging
-        context = reranked[0]["text"] if reranked else ""
-        answer = generate_answer(question, context) if context else ""
-        scores = _judge_answer(question, answer, context)
-        faithfulness_sum += scores["faithfulness"]
-        relevance_sum += scores["relevance"]
-
-        status = f"rank={rank}" if rank else "miss"
-        print(f"        {status}  faith={scores['faithfulness']}  rel={scores['relevance']}")
-
-    # Summary
     print("\n" + "=" * 50)
+    print(f"RESULTS ({n}/{n_total} cases evaluated)")
+    print()
     print("RETRIEVAL")
     print(f"  Hit@1:  {hits[1]/n:.1%}  ({hits[1]}/{n})")
     print(f"  Hit@3:  {hits[3]/n:.1%}  ({hits[3]}/{n})")
@@ -199,6 +190,60 @@ def run_eval(testset_path: str = str(TESTSET_PATH)) -> None:
     print(f"  Faithfulness: {faithfulness_sum/n:.2f}")
     print(f"  Relevance:    {relevance_sum/n:.2f}")
     print("=" * 50)
+    print(f"\nPer-case results saved to {RESULTS_PATH}")
+
+
+def run_eval(testset_path: str = str(TESTSET_PATH)) -> None:
+    """Run retrieval + answer quality evaluation. Resumes from saved results."""
+    path = Path(testset_path)
+    if not path.exists():
+        print(f"Test set not found at {path}. Run 'eval.py generate' first.")
+        sys.exit(1)
+
+    testset = json.loads(path.read_text())
+    n = len(testset)
+
+    # Resume: load existing results and skip already-evaluated questions
+    results = _load_results()
+    done_questions = {r["question"] for r in results}
+    remaining = [(i, case) for i, case in enumerate(testset) if case["question"] not in done_questions]
+
+    if results:
+        print(f"Resuming: {len(results)}/{n} already evaluated, {len(remaining)} remaining\n")
+    else:
+        print(f"Evaluating {n} test cases...\n")
+
+    for idx, (i, case) in enumerate(remaining, 1):
+        question = case["question"]
+        source_chunk = case["source_chunk"]
+        print(f"[{len(results) + idx}/{n}] {question[:70]}...")
+
+        # Retrieval
+        candidates = search(question, top_k=30)
+        reranked = rerank(question, candidates, top_k=5)
+
+        rank = _find_chunk_rank(source_chunk, reranked)
+
+        # Answer generation + judging
+        context = reranked[0]["text"] if reranked else ""
+        answer = generate_answer(question, context) if context else ""
+        scores = _judge_answer(question, answer, context)
+
+        result = {
+            "question": question,
+            "source_file": case["source_file"],
+            "rank": rank,
+            "faithfulness": scores["faithfulness"],
+            "relevance": scores["relevance"],
+            "answer": answer,
+        }
+        results.append(result)
+        _save_results(results)
+
+        status = f"rank={rank}" if rank else "miss"
+        print(f"        {status}  faith={scores['faithfulness']}  rel={scores['relevance']}")
+
+    _print_summary(results, n)
 
 
 # ── CLI ──────────────────────────────────────────────────────────

@@ -62,7 +62,7 @@ def ingest(directory: str = "data/"):
 
     # Process new files in parallel (extract → chunk → embed)
     if new_files:
-        with ThreadPoolExecutor() as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {pool.submit(_process_file, fp): fp for fp in new_files}
             for future in as_completed(futures):
                 file_path, chunks, embeddings = future.result()
